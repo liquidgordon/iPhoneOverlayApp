@@ -1,0 +1,238 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#090c11">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Camera Overlay">
+  <meta name="description" content="See a reference photo over a live camera view. Your photos stay on your device.">
+  <link rel="manifest" href="./manifest.webmanifest">
+  <link rel="apple-touch-icon" href="./icon-180.png">
+  <title>Camera Overlay</title>
+  <style>
+    :root { color-scheme: dark; font: 16px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #090c11; color: #f3f5f7; }
+    * { box-sizing: border-box; }
+    body { margin: 0; min-height: 100vh; min-height: 100dvh; }
+    .app { width: min(100%, 500px); margin: 0 auto; padding: max(16px, env(safe-area-inset-top)) 16px max(20px, env(safe-area-inset-bottom)); }
+    header { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; padding: 0 0 14px; }
+    h1 { font-size: 19px; letter-spacing: -.025em; margin: 0; font-weight: 700; }
+    .private { font-size: 11px; color: #a8b1c0; white-space: nowrap; }
+    .viewer { position: relative; width: 100%; aspect-ratio: 3/4; max-height: calc(100dvh - 225px); background: #171b22; border: 1px solid #303743; border-radius: 18px; overflow: hidden; isolation: isolate; }
+    .viewer video, .viewer img { display: block; position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+    .viewer video { background: #0d1118; }
+    .viewer video.front { transform: scaleX(-1); }
+    .viewer img { opacity: .5; pointer-events: none; display: none; }
+    .viewer img.visible { display: block; }
+    .viewer img.fit { object-fit: contain; }
+    .empty { position: absolute; inset: 0; display: grid; align-content: center; justify-items: center; padding: 28px; text-align: center; pointer-events: none; background: #171b22; }
+    .empty.hidden { display: none; }
+    .empty .camera-symbol { width: 62px; height: 62px; border: 2px solid #8490a2; border-radius: 14px; display: grid; place-items: center; font-size: 32px; margin-bottom: 14px; opacity: .8; }
+    .empty strong { font-size: 15px; }
+    .empty p { font-size: 13px; color: #a8b1c0; margin: 6px 0 0; max-width: 240px; }
+    .panel { margin-top: 15px; }
+    .button-row { display: flex; gap: 10px; }
+    button, .file-label { border: 1px solid #3b4656; color: #f8fafc; background: #222936; font: inherit; font-weight: 600; font-size: 14px; border-radius: 12px; min-height: 45px; padding: 0 13px; display: inline-flex; justify-content: center; align-items: center; gap: 7px; cursor: pointer; -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
+    button:disabled { opacity: .4; cursor: not-allowed; }
+    button:focus-visible, .file-label:focus-within, input[type=range]:focus-visible { outline: 3px solid #80b9ff; outline-offset: 3px; }
+    .primary { background: #2764d2; border-color: #3c7bdf; }
+    .button-row > button:first-child, .button-row > .file-label { flex: 1; }
+    .file-label input { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+    .opacity-header { display: flex; align-items: center; justify-content: space-between; margin-top: 18px; gap: 15px; }
+    .opacity-header label { font-size: 14px; font-weight: 600; }
+    output { color: #b7c3d2; font-size: 14px; font-variant-numeric: tabular-nums; }
+    input[type=range] { width: 100%; height: 32px; margin: 6px 0 0; accent-color: #5e98fa; cursor: pointer; }
+    .options { display: flex; align-items: center; gap: 12px; justify-content: space-between; border-top: 1px solid #29313b; margin-top: 9px; padding-top: 12px; }
+    .option-group { display: flex; align-items: center; gap: 8px; font-size: 12px; color: #aab5c4; }
+    select { color: #f1f5f9; background: #212833; border: 1px solid #3b4656; padding: 7px 9px; border-radius: 9px; font: inherit; font-size: 13px; }
+    .subtle-button { min-height: 34px; padding: 0 10px; font-size: 12px; background: transparent; border-color: #38414d; }
+    .status { min-height: 21px; margin: 12px 2px 0; font-size: 12px; color: #a8b1c0; }
+    .status.error { color: #ffb2a6; }
+    @media (max-height: 710px) { .app { padding-top: max(8px, env(safe-area-inset-top)); } header { padding-bottom: 8px; } .viewer { max-height: calc(100dvh - 205px); } .panel { margin-top: 9px; } .opacity-header { margin-top: 10px; } .options { padding-top: 8px; } }
+  </style>
+</head>
+<body>
+  <main class="app">
+    <header>
+      <h1>Camera Overlay</h1>
+      <span class="private">On-device · No uploads</span>
+    </header>
+
+    <section class="viewer" aria-label="Live camera with reference image overlay">
+      <video id="camera" autoplay muted playsinline webkit-playsinline aria-label="Live camera preview"></video>
+      <div class="empty" id="empty">
+        <div class="camera-symbol" aria-hidden="true">◎</div>
+        <strong>Live camera preview</strong>
+        <p>Tap Start camera, then select a reference photo to overlay.</p>
+      </div>
+      <img id="overlay" alt="Selected reference photo over camera preview">
+    </section>
+
+    <section class="panel" aria-label="Camera overlay controls">
+      <div class="button-row">
+        <button id="cameraButton" class="primary" type="button">Start camera</button>
+        <label class="file-label" for="photoInput">Choose photo
+          <input id="photoInput" type="file" accept="image/*" aria-label="Choose a photo from your library">
+        </label>
+        <button id="switchButton" type="button" disabled aria-label="Switch between front and rear camera" title="Switch camera">↻</button>
+      </div>
+      <div class="opacity-header">
+        <label for="opacity">Photo opacity</label>
+        <output id="opacityValue" for="opacity">50%</output>
+      </div>
+      <input id="opacity" type="range" min="0" max="100" step="1" value="50" aria-label="Reference photo opacity">
+      <div class="options">
+        <div class="option-group">
+          <label for="fit">Photo sizing</label>
+          <select id="fit" aria-label="Photo sizing">
+            <option value="fill">Fill frame</option>
+            <option value="fit">Show whole photo</option>
+          </select>
+        </div>
+        <button class="subtle-button" id="clearButton" type="button" disabled>Remove photo</button>
+      </div>
+      <p class="status" id="status" role="status" aria-live="polite">Photos stay on your phone; nothing is uploaded.</p>
+    </section>
+  </main>
+
+  <script>
+    (() => {
+      'use strict';
+      const video = document.getElementById('camera');
+      const overlay = document.getElementById('overlay');
+      const empty = document.getElementById('empty');
+      const cameraButton = document.getElementById('cameraButton');
+      const switchButton = document.getElementById('switchButton');
+      const photoInput = document.getElementById('photoInput');
+      const opacityInput = document.getElementById('opacity');
+      const opacityValue = document.getElementById('opacityValue');
+      const fitInput = document.getElementById('fit');
+      const clearButton = document.getElementById('clearButton');
+      const status = document.getElementById('status');
+      let stream = null;
+      let facing = 'environment';
+      let imageUrl = null;
+      let pendingCamera = false;
+
+      function message(text, isError = false) {
+        status.textContent = text;
+        status.classList.toggle('error', isError);
+      }
+      function stopCamera() {
+        if (stream) stream.getTracks().forEach(track => track.stop());
+        stream = null;
+        video.pause();
+        video.srcObject = null;
+        video.classList.remove('front');
+        empty.classList.remove('hidden');
+        cameraButton.textContent = 'Start camera';
+        switchButton.disabled = true;
+      }
+      async function startCamera() {
+        if (pendingCamera) return;
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+          message('Camera access requires Safari on a secure (HTTPS) website.', true);
+          return;
+        }
+        pendingCamera = true;
+        cameraButton.disabled = true;
+        switchButton.disabled = true;
+        if (stream) stopCamera();
+        message('Opening camera…');
+        try {
+          const newStream = await navigator.mediaDevices.getUserMedia({
+            audio: false,
+            video: { facingMode: { ideal: facing } }
+          });
+          stream = newStream;
+          video.srcObject = newStream;
+          video.classList.toggle('front', facing === 'user');
+          await video.play();
+          empty.classList.add('hidden');
+          cameraButton.textContent = 'Stop camera';
+          switchButton.disabled = false;
+          message('Camera is live. Choose a photo to overlay.');
+        } catch (error) {
+          stopCamera();
+          if (error?.name === 'NotAllowedError' || error?.name === 'PermissionDeniedError') {
+            message('Camera access was denied. Allow camera access in Safari settings and try again.', true);
+          } else if (error?.name === 'NotFoundError' || error?.name === 'OverconstrainedError') {
+            message('No compatible camera was found.', true);
+          } else {
+            message('Could not start the camera. Try opening this app directly in Safari.', true);
+          }
+        } finally {
+          pendingCamera = false;
+          cameraButton.disabled = false;
+        }
+      }
+      cameraButton.addEventListener('click', () => {
+        if (stream) {
+          stopCamera();
+          message('Camera stopped.');
+        } else startCamera();
+      });
+      switchButton.addEventListener('click', () => {
+        facing = facing === 'environment' ? 'user' : 'environment';
+        startCamera();
+      });
+      photoInput.addEventListener('change', () => {
+        const file = photoInput.files && photoInput.files[0];
+        if (!file) return;
+        if (!file.type.startsWith('image/')) {
+          message('Please choose an image file.', true);
+          return;
+        }
+        const nextUrl = URL.createObjectURL(file);
+        const previousUrl = imageUrl;
+        overlay.onload = () => { if (previousUrl) URL.revokeObjectURL(previousUrl); };
+        overlay.onerror = () => {
+          URL.revokeObjectURL(nextUrl);
+          imageUrl = previousUrl;
+          if (previousUrl) {
+            overlay.src = previousUrl;
+            overlay.classList.add('visible');
+          } else {
+            overlay.classList.remove('visible');
+            overlay.removeAttribute('src');
+            clearButton.disabled = true;
+          }
+          message('Could not open that photo. Try a different image.', true);
+        };
+        imageUrl = nextUrl;
+        overlay.src = nextUrl;
+        overlay.classList.add('visible');
+        clearButton.disabled = false;
+        message('Photo loaded. Move the opacity slider to blend it with the camera.');
+        photoInput.value = '';
+      });
+      opacityInput.addEventListener('input', () => {
+        overlay.style.opacity = String(Number(opacityInput.value) / 100);
+        opacityValue.textContent = opacityInput.value + '%';
+      });
+      fitInput.addEventListener('change', () => {
+        overlay.classList.toggle('fit', fitInput.value === 'fit');
+      });
+      clearButton.addEventListener('click', () => {
+        overlay.classList.remove('visible');
+        overlay.removeAttribute('src');
+        overlay.onload = null;
+        overlay.onerror = null;
+        if (imageUrl) URL.revokeObjectURL(imageUrl);
+        imageUrl = null;
+        clearButton.disabled = true;
+        message('Reference photo removed.');
+      });
+      window.addEventListener('pagehide', () => {
+        stopCamera();
+      });
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+          navigator.serviceWorker.register('./sw.js').catch(() => {});
+        });
+      }
+    })();
+  </script>
+</body>
+</html>
