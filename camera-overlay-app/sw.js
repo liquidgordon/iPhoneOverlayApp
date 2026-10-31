@@ -1,4 +1,4 @@
-const CACHE_NAME = 'camera-overlay-v1';
+const CACHE_NAME = 'camera-overlay-v2';
 const APP_FILES = ['./', './index.html', './manifest.webmanifest', './icon-180.png', './icon-512.png'];
 
 self.addEventListener('install', event => {

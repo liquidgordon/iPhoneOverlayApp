@@ -13,6 +13,13 @@ INSTALL THROUGH FREE GITHUB PAGES
 7. Tap Share > Add to Home Screen, then Add (enable Open as Web App if shown).
 8. Open your new home-screen icon and tap Start camera. Allow camera access.
 9. Tap Choose photo to select a picture from Photos. Use the opacity slider.
+10. Pinch with two fingers in the camera preview or adjust the Camera zoom slider (1–4×).
+    Only the live camera image zooms; the overlaid reference photo stays unchanged.
+
+UPDATING AN EXISTING GITHUB PAGES INSTALL
+- Replace index.html and sw.js in the root of your existing GitHub repository.
+- Refresh your app after GitHub Pages finishes publishing; if still showing the old app,
+  completely close the Home Screen app and open it again while connected to the internet.
 
 IMPORTANT
 - The website URL and the app's source code will be publicly accessible on free GitHub Pages.

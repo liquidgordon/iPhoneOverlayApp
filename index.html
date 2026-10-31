@@ -19,10 +19,9 @@
     header { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; padding: 0 0 14px; }
     h1 { font-size: 19px; letter-spacing: -.025em; margin: 0; font-weight: 700; }
     .private { font-size: 11px; color: #a8b1c0; white-space: nowrap; }
-    .viewer { position: relative; width: 100%; aspect-ratio: 3/4; max-height: calc(100dvh - 225px); background: #171b22; border: 1px solid #303743; border-radius: 18px; overflow: hidden; isolation: isolate; }
+    .viewer { position: relative; width: 100%; aspect-ratio: 3/4; max-height: calc(100dvh - 295px); background: #171b22; border: 1px solid #303743; border-radius: 18px; overflow: hidden; isolation: isolate; touch-action: none; -webkit-user-select: none; user-select: none; }
     .viewer video, .viewer img { display: block; position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
-    .viewer video { background: #0d1118; }
-    .viewer video.front { transform: scaleX(-1); }
+    .viewer video { background: #0d1118; transform-origin: center center; }
     .viewer img { opacity: .5; pointer-events: none; display: none; }
     .viewer img.visible { display: block; }
     .viewer img.fit { object-fit: contain; }
@@ -39,8 +38,8 @@
     .primary { background: #2764d2; border-color: #3c7bdf; }
     .button-row > button:first-child, .button-row > .file-label { flex: 1; }
     .file-label input { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
-    .opacity-header { display: flex; align-items: center; justify-content: space-between; margin-top: 18px; gap: 15px; }
-    .opacity-header label { font-size: 14px; font-weight: 600; }
+    .range-header { display: flex; align-items: center; justify-content: space-between; margin-top: 14px; gap: 15px; }
+    .range-header label { font-size: 14px; font-weight: 600; }
     output { color: #b7c3d2; font-size: 14px; font-variant-numeric: tabular-nums; }
     input[type=range] { width: 100%; height: 32px; margin: 6px 0 0; accent-color: #5e98fa; cursor: pointer; }
     .options { display: flex; align-items: center; gap: 12px; justify-content: space-between; border-top: 1px solid #29313b; margin-top: 9px; padding-top: 12px; }
@@ -49,7 +48,7 @@
     .subtle-button { min-height: 34px; padding: 0 10px; font-size: 12px; background: transparent; border-color: #38414d; }
     .status { min-height: 21px; margin: 12px 2px 0; font-size: 12px; color: #a8b1c0; }
     .status.error { color: #ffb2a6; }
-    @media (max-height: 710px) { .app { padding-top: max(8px, env(safe-area-inset-top)); } header { padding-bottom: 8px; } .viewer { max-height: calc(100dvh - 205px); } .panel { margin-top: 9px; } .opacity-header { margin-top: 10px; } .options { padding-top: 8px; } }
+    @media (max-height: 710px) { .app { padding-top: max(8px, env(safe-area-inset-top)); } header { padding-bottom: 8px; } .viewer { max-height: calc(100dvh - 270px); } .panel { margin-top: 9px; } .range-header { margin-top: 10px; } .options { padding-top: 8px; } }
   </style>
 </head>
 <body>
@@ -59,7 +58,7 @@
       <span class="private">On-device · No uploads</span>
     </header>
 
-    <section class="viewer" aria-label="Live camera with reference image overlay">
+    <section class="viewer" id="viewer" aria-label="Live camera with fixed reference image overlay; pinch to zoom the camera">
       <video id="camera" autoplay muted playsinline webkit-playsinline aria-label="Live camera preview"></video>
       <div class="empty" id="empty">
         <div class="camera-symbol" aria-hidden="true">◎</div>
@@ -77,11 +76,16 @@
         </label>
         <button id="switchButton" type="button" disabled aria-label="Switch between front and rear camera" title="Switch camera">↻</button>
       </div>
-      <div class="opacity-header">
+      <div class="range-header">
         <label for="opacity">Photo opacity</label>
         <output id="opacityValue" for="opacity">50%</output>
       </div>
       <input id="opacity" type="range" min="0" max="100" step="1" value="50" aria-label="Reference photo opacity">
+      <div class="range-header">
+        <label for="zoom">Camera zoom</label>
+        <output id="zoomValue" for="zoom">1.00×</output>
+      </div>
+      <input id="zoom" type="range" min="1" max="4" step="0.01" value="1" aria-label="Camera zoom" disabled>
       <div class="options">
         <div class="option-group">
           <label for="fit">Photo sizing</label>
@@ -100,6 +104,7 @@
     (() => {
       'use strict';
       const video = document.getElementById('camera');
+      const viewer = document.getElementById('viewer');
       const overlay = document.getElementById('overlay');
       const empty = document.getElementById('empty');
       const cameraButton = document.getElementById('cameraButton');
@@ -107,6 +112,8 @@
       const photoInput = document.getElementById('photoInput');
       const opacityInput = document.getElementById('opacity');
       const opacityValue = document.getElementById('opacityValue');
+      const zoomInput = document.getElementById('zoom');
+      const zoomValue = document.getElementById('zoomValue');
       const fitInput = document.getElementById('fit');
       const clearButton = document.getElementById('clearButton');
       const status = document.getElementById('status');
@@ -114,6 +121,44 @@
       let facing = 'environment';
       let imageUrl = null;
       let pendingCamera = false;
+      let cameraZoom = 1;
+      let pinchStartDistance = null;
+      let pinchStartZoom = 1;
+
+      // Only scale the video, never the overlay image. This works even when
+      // the browser doesn't provide access to the camera's hardware zoom.
+      function setCameraZoom(value) {
+        cameraZoom = Math.max(1, Math.min(4, value));
+        zoomInput.value = cameraZoom.toFixed(2);
+        zoomValue.textContent = cameraZoom.toFixed(2) + '×';
+        const mirror = facing === 'user' ? ' scaleX(-1)' : '';
+        video.style.transform = `scale(${cameraZoom})${mirror}`;
+      }
+
+      function touchDistance(touches) {
+        const a = touches[0];
+        const b = touches[1];
+        return Math.hypot(b.clientX - a.clientX, b.clientY - a.clientY);
+      }
+
+      viewer.addEventListener('touchstart', (event) => {
+        if (!stream || event.touches.length !== 2) return;
+        pinchStartDistance = touchDistance(event.touches);
+        pinchStartZoom = cameraZoom;
+      }, { passive: true });
+
+      viewer.addEventListener('touchmove', (event) => {
+        if (!stream || event.touches.length !== 2 || pinchStartDistance === null) return;
+        event.preventDefault();
+        setCameraZoom(pinchStartZoom * touchDistance(event.touches) / pinchStartDistance);
+      }, { passive: false });
+
+      viewer.addEventListener('touchend', (event) => {
+        if (event.touches.length < 2) pinchStartDistance = null;
+      });
+      viewer.addEventListener('touchcancel', () => { pinchStartDistance = null; });
+
+      zoomInput.addEventListener('input', () => setCameraZoom(Number(zoomInput.value)));
 
       function message(text, isError = false) {
         status.textContent = text;
@@ -124,7 +169,8 @@
         stream = null;
         video.pause();
         video.srcObject = null;
-        video.classList.remove('front');
+        zoomInput.disabled = true;
+        pinchStartDistance = null;
         empty.classList.remove('hidden');
         cameraButton.textContent = 'Start camera';
         switchButton.disabled = true;
@@ -147,12 +193,13 @@
           });
           stream = newStream;
           video.srcObject = newStream;
-          video.classList.toggle('front', facing === 'user');
+          setCameraZoom(cameraZoom);
           await video.play();
           empty.classList.add('hidden');
           cameraButton.textContent = 'Stop camera';
           switchButton.disabled = false;
-          message('Camera is live. Choose a photo to overlay.');
+          zoomInput.disabled = false;
+          message('Camera live. Pinch the view or use Camera zoom; your photo stays fixed.');
         } catch (error) {
           stopCamera();
           if (error?.name === 'NotAllowedError' || error?.name === 'PermissionDeniedError') {
@@ -204,7 +251,7 @@
         overlay.src = nextUrl;
         overlay.classList.add('visible');
         clearButton.disabled = false;
-        message('Photo loaded. Move the opacity slider to blend it with the camera.');
+        message('Photo loaded. Zoom affects only the camera, not the photo.');
         photoInput.value = '';
       });
       opacityInput.addEventListener('input', () => {
